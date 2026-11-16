@@ -1,0 +1,630 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Volley Lab</title>
+<meta name="theme-color" content="#14162b">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Volley Lab">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}*{box-sizing:border-box}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bungee&family=JetBrains+Mono:wght@500;700&family=Manrope:wght@400;600;700&display=swap">
+<style>
+/* Layout: arcade board on the left, a lab-notebook column of per-ball stats (Run / Lifetime tabs) on the right; stacks on phones. Single dark look by choice. */
+:root{
+  --bg:#14162b; --panel:#1c1f3b; --line:#2e3263; --fg:#ece9f7; --muted:#9a97c4;
+  --cold:#cfd6ff; --warm:#ffd166; --hot:#ff8c42; --mvp:#ff4d6d; --good:#5fd39a;
+  --display:'Bungee','Arial Black',Impact,sans-serif;
+  --body:'Manrope',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{background:var(--bg);color:var(--fg);overscroll-behavior:none}
+body{font-family:var(--body);font-size:15px;line-height:1.45;-webkit-tap-highlight-color:transparent;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 32px}
+.app{max-width:1020px;margin:0 auto;display:grid;gap:24px;grid-template-columns:minmax(0,1fr)}
+@media (min-width:860px){.app{grid-template-columns:minmax(0,440px) minmax(0,1fr);align-items:start}}
+.board-col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-family:var(--display);font-weight:400;font-size:26px;letter-spacing:.02em;margin:0;line-height:1}
+h1 span{color:var(--hot)}
+.hud{display:flex;gap:14px;font-family:var(--mono);font-size:13px;color:var(--muted)}
+.hud b{color:var(--fg);font-weight:700;font-variant-numeric:tabular-nums}
+.board{position:relative;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#101224;-webkit-user-select:none;user-select:none}
+canvas#cv{display:block;width:100%;aspect-ratio:420/660;touch-action:none;cursor:crosshair}
+.live{position:absolute;top:8px;left:10px;right:10px;display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted);pointer-events:none}
+.live b{color:var(--warm);font-variant-numeric:tabular-nums}
+.live .boost{color:var(--hot);font-weight:700}
+.hint{position:absolute;left:0;right:0;bottom:56px;text-align:center;font-size:13px;color:var(--muted);pointer-events:none}
+.card{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.pill{display:flex;align-items:center;gap:6px;padding:4px 11px;background:rgba(28,31,59,.94);border-color:var(--line)}
+.pill .big{color:var(--warm);font-size:14px;font-variant-numeric:tabular-nums}
+.pill .arr{font-size:11px}
+.arr.up,.delta.up{color:var(--good)} .arr.down,.delta.down{color:var(--mvp)} .arr.flat,.delta.flat{color:var(--muted)}
+.pop{width:210px;background:rgba(28,31,59,.97);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.pop .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pop .delta{font-family:var(--mono);font-size:12px;font-weight:700}
+.pop .row b{color:var(--mvp);font-family:var(--mono)}
+.pop .bonus{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.pop .chip{font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:rgba(255,209,102,.14);color:var(--warm)}
+.pop .chip.clear{background:rgba(95,211,154,.16);color:var(--good)}
+.overlay{position:absolute;inset:0;background:rgba(16,18,36,.9);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px}
+.overlay h2{font-family:var(--display);font-weight:400;font-size:28px;margin:0;color:var(--mvp)}
+.overlay p{margin:0;color:var(--muted);max-width:32ch}
+.overlay p b{color:var(--fg)}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+button{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--fg);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:8px 14px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--muted)}
+button:focus-visible{outline:2px solid var(--warm);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+button.primary{background:var(--hot);color:#1a1020;border-color:var(--hot)}
+button.danger{color:var(--mvp)}
+button.armed{background:var(--mvp);color:#1a1020;border-color:var(--mvp)}
+.stats{display:flex;flex-direction:column;gap:22px;min-width:0}
+.tabs{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;align-self:flex-start}
+.tabs button{border:0;background:transparent;color:var(--muted);padding:6px 16px}
+.tabs button[aria-selected="true"]{background:var(--line);color:var(--fg)}
+.pane{display:flex;flex-direction:column;gap:22px;min-width:0}
+.sec h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
+.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+@media (min-width:560px){.metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.m{background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.m .k{font-size:12px;color:var(--muted)}
+.m .v{font-family:var(--mono);font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2}
+.m .s{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.m.mvp .v{color:var(--mvp)}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.chart canvas{display:block;width:100%}
+.cap{font-size:12px;color:var(--muted);margin:8px 0 0}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.kv{display:grid;gap:8px;font-size:14px}
+.kv div{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:8px}
+.kv span{color:var(--muted)}
+.kv b{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+.tbl-wrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700;border-bottom:1px solid var(--line)}
+td{font-family:var(--mono);border-bottom:1px solid rgba(46,50,99,.5)}
+tr:last-child td{border-bottom:0}
+td.empty{text-align:center;color:var(--muted);font-family:var(--body);padding:16px}
+.data{display:flex;flex-direction:column;gap:10px}
+.data .controls{gap:8px}
+.data textarea{width:100%;box-sizing:border-box;min-height:90px;background:#101224;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:10px;font-family:var(--mono);font-size:11px;resize:vertical}
+.note{font-size:12px;color:var(--muted);margin:0}
+.note.ok{color:var(--good)} .note.err{color:var(--mvp)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<main class="app">
+  <section class="board-col">
+    <div class="top">
+      <h1>Volley <span>Lab</span></h1>
+      <div class="hud">
+        <div>Turn <b id="hTurn">1</b></div>
+        <div>Balls <b id="hBalls">1</b></div>
+        <div>Best <b id="hBest">0</b></div>
+      </div>
+    </div>
+    <div class="board">
+      <canvas id="cv" aria-label="Game board. Drag to aim, release to fire. Tap during a volley to speed it up."></canvas>
+      <div class="live"><span id="live"></span><span class="boost" id="boost"></span></div>
+      <div class="hint" id="hint">Drag to aim, release to fire</div>
+      <div class="card" id="card" hidden>
+        <button class="pill" id="pillBtn" aria-expanded="false" aria-controls="pop" aria-label="Last volley hits per ball. Tap for details."><span class="big" id="cBig">0.00</span><span class="arr flat" id="cArrow"></span></button>
+        <div class="pop" id="pop" hidden>
+          <span class="lbl" id="cTurn">Turn 1</span>
+          <span>hits per ball</span>
+          <span class="delta flat" id="cDelta"></span>
+          <span class="row" id="cMvp"></span>
+          <span class="bonus" id="cBonus"></span>
+        </div>
+      </div>
+      <div class="overlay" id="over" hidden>
+        <h2>Run over</h2>
+        <p id="overText"></p>
+        <button class="primary" id="again">Play again</button>
+      </div>
+    </div>
+    <div class="controls">
+      <button id="speed" aria-label="Default game speed">Speed 1×</button>
+      <button id="recall" disabled>Recall balls</button>
+      <button id="restart">New game</button>
+    </div>
+  </section>
+
+  <aside class="stats">
+    <div class="tabs" role="tablist">
+      <button role="tab" id="tRun" aria-selected="true">This run</button>
+      <button role="tab" id="tLife" aria-selected="false">Lifetime</button>
+    </div>
+
+    <div class="pane" id="pRun">
+      <div class="sec">
+        <h3>Last volley</h3>
+        <div class="metrics">
+          <div class="m"><span class="k">Hits per ball</span><span class="v" id="mHpb">–</span><span class="s" id="mHpbS">fire a volley</span></div>
+          <div class="m"><span class="k">Total hits</span><span class="v" id="mTot">–</span><span class="s" id="mTotS">&nbsp;</span></div>
+          <div class="m mvp"><span class="k">MVP ball</span><span class="v" id="mMvp">–</span><span class="s" id="mMvpS">&nbsp;</span></div>
+          <div class="m"><span class="k">Duds (0–1 hits)</span><span class="v" id="mDud">–</span><span class="s" id="mDudS">&nbsp;</span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <h3>Hits by ball, in firing order</h3>
+        <div class="chart">
+          <canvas id="bars" height="140"></canvas>
+          <div class="legend"><span><i style="background:var(--mvp)"></i>MVP</span><span><i style="background:var(--hot)"></i>Hitter</span><span><i style="background:var(--line)"></i>Dud</span><span>Dashed line: volley average</span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <h3>Efficiency by turn</h3>
+        <div class="chart"><canvas id="spark" height="110"></canvas><p class="cap">Hits per ball for every volley this run.</p></div>
+      </div>
+      <div class="sec">
+        <h3>Launch angle map, this run</h3>
+        <div class="chart"><canvas id="fan" height="170"></canvas><p class="cap">Average hits per ball for each 15° launch window, seen from the launcher. Hotter wedges have paid off more.</p></div>
+      </div>
+      <div class="sec">
+        <h3>Run totals</h3>
+        <div class="kv">
+          <div><span>Overall hits per ball</span><b id="aHpb">–</b></div>
+          <div><span>Best single ball</span><b id="aBest">–</b></div>
+          <div><span>Board clears</span><b id="aClr">0</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="pLife" hidden>
+      <div class="sec">
+        <h3>All runs</h3>
+        <div class="metrics">
+          <div class="m"><span class="k">Runs played</span><span class="v" id="lRuns">0</span><span class="s" id="lRunsS">&nbsp;</span></div>
+          <div class="m"><span class="k">Best run</span><span class="v" id="lBest">–</span><span class="s" id="lBestS">turns survived</span></div>
+          <div class="m"><span class="k">Hits per ball</span><span class="v" id="lHpb">–</span><span class="s" id="lHpbS">&nbsp;</span></div>
+          <div class="m mvp"><span class="k">Best ball ever</span><span class="v" id="lBall">–</span><span class="s" id="lBallS">&nbsp;</span></div>
+        </div>
+      </div>
+      <div class="sec">
+        <h3>Efficiency by run</h3>
+        <div class="chart"><canvas id="lspark" height="110"></canvas><p class="cap">Hits per ball for each finished run, oldest to newest (last 50).</p></div>
+      </div>
+      <div class="sec">
+        <h3>Launch angle map, every shot</h3>
+        <div class="chart"><canvas id="lfan" height="170"></canvas><p class="cap">Built from every volley you have ever fired on this device.</p></div>
+      </div>
+      <div class="sec">
+        <h3>Recent runs</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>Date</th><th>Turns</th><th>Balls fired</th><th>Hits/ball</th><th>Best ball</th></tr></thead>
+          <tbody id="lTable"></tbody>
+        </table></div>
+      </div>
+      <div class="sec">
+        <h3>Lifetime totals</h3>
+        <div class="kv">
+          <div><span>Volleys fired</span><b id="lVol">0</b></div>
+          <div><span>Balls fired</span><b id="lBalls">0</b></div>
+          <div><span>Total hits</span><b id="lHits">0</b></div>
+          <div><span>Dud rate</span><b id="lDud">–</b></div>
+          <div><span>Board clears</span><b id="lClr">0</b></div>
+        </div>
+      </div>
+      <div class="sec data">
+        <h3>Your data</h3>
+        <p class="note">Stats are saved on this device. Export them to keep a backup or move them to another device.</p>
+        <div class="controls">
+          <button id="exp">Export stats</button>
+          <button id="imp">Import stats</button>
+          <button id="rst" class="danger">Reset lifetime</button>
+          <input type="file" id="impFile" accept="application/json,.json,text/plain" hidden>
+        </div>
+        <div id="expBox" hidden>
+          <textarea id="expText" readonly aria-label="Exported stats"></textarea>
+          <div class="controls"><button id="copy">Copy</button><button id="saveFile">Save file</button></div>
+        </div>
+        <div id="impBox" hidden>
+          <textarea id="impText" aria-label="Paste exported stats" placeholder="Paste exported stats here, or choose a file"></textarea>
+          <div class="controls"><button id="impGo" class="primary">Replace my stats</button><button id="impPick">Choose file</button></div>
+        </div>
+        <p class="note" id="dataMsg"></p>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<script>
+(()=>{
+const W=420,CELL=60,COLS=7,H=660,R=6,SPEED=9,LY=H-R,DEAD_ROW=10,MAX_EFF=8;
+const $=id=>document.getElementById(id);
+const cv=$('cv'),ctx=cv.getContext('2d');
+const css=getComputedStyle(document.documentElement);
+const C=n=>css.getPropertyValue('--'+n).trim();
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+const today=()=>new Date().toISOString().slice(0,10);
+const fmt=n=>Number(n).toLocaleString();
+
+/* ---------- lifetime ---------- */
+function blankLife(){return{v:1,runs:0,volleys:0,balls:0,hits:0,duds:0,clears:0,bins:Array.from({length:12},()=>({s:0,n:0})),bestBall:null,bestRun:null,recent:[]}}
+function validLife(o){return o&&o.v===1&&Array.isArray(o.bins)&&o.bins.length===12&&Array.isArray(o.recent)&&typeof o.balls==='number'}
+let L=store.get('vl_life');if(!validLife(L))L=blankLife();
+const saveLife=()=>store.set('vl_life',L);
+
+/* ---------- run state ---------- */
+let S; // serializable run state
+let balls=[],phase='aim',fired=0,fireTimer=0,pendingAdds=0,cleared=false,shotDir,aim=null,nextX=null,boost=1,floats=[],cardOn=false,lastCard=null;
+let speedMult=store.get('vl_speed')||1;
+
+function blankRun(){return{level:1,ballCount:1,launcherX:W/2,blocks:[],history:[],bins:Array.from({length:12},()=>({s:0,n:0})),bestBall:null,totals:{hits:0,balls:0},clears:0,date:today()}}
+function newGame(){
+  if(S&&S.history.length&&phase!=='over')finishRun(); // count an abandoned run
+  S=blankRun();balls=[];phase='aim';fired=0;pendingAdds=0;cleared=false;floats=[];cardOn=false;
+  spawnRow();store.del('vl_run');
+  $('over').hidden=true;$('hint').hidden=false;hideCard();$('live').textContent='';$('boost').textContent='';
+  updateHud();renderAll();
+}
+function resume(){
+  const r=store.get('vl_run');
+  if(r&&Array.isArray(r.blocks)&&r.level){S=r;balls=[];phase='aim';$('hint').hidden=true;if(r.lastCard)showCard(r.lastCard);updateHud();renderAll();return true}
+  return false;
+}
+function spawnRow(){
+  const cells=[...Array(COLS).keys()].sort(()=>Math.random()-.5);
+  const carrier=cells.pop();
+  S.blocks.push({c:carrier,r:1,hp:S.level,max:S.level,carry:1,flash:0});
+  // the ball block counts toward the row: about 3.3 blocks per row on average, as before
+  cells.forEach(c=>{
+    if(Math.random()<.38){const dbl=S.level>3&&Math.random()<.2;const hp=dbl?S.level*2:S.level;S.blocks.push({c,r:1,hp,max:hp,carry:0,flash:0})}
+  });
+}
+
+/* ---------- input ---------- */
+function toLogical(e){const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*W/r.width,y:(e.clientY-r.top)*H/r.height}}
+function aimFrom(p){const dx=p.x-S.launcherX,dy=LY-p.y;if(dy<8)return null;const a=Math.atan2(dy,dx)*180/Math.PI;return Math.max(8,Math.min(172,a))}
+let aiming=false;
+cv.addEventListener('pointerdown',e=>{
+  if(phase==='fire'){ // tap to speed up this volley
+    if(speedMult*boost<MAX_EFF){boost*=2;$('boost').textContent=(speedMult*boost)+'× speed'}
+    return;
+  }
+  if(phase!=='aim')return;
+  if(cardOn)hideCard();
+  aiming=true;try{cv.setPointerCapture(e.pointerId)}catch(_){}
+  aim=aimFrom(toLogical(e));
+});
+cv.addEventListener('pointermove',e=>{if(phase==='aim'&&aiming)aim=aimFrom(toLogical(e))});
+cv.addEventListener('pointerup',e=>{
+  if(phase!=='aim'||!aiming)return;aiming=false;
+  const a=aimFrom(toLogical(e));aim=null;if(a==null)return;
+  S.shotAngle=a;const rad=a*Math.PI/180;shotDir={dx:Math.cos(rad),dy:-Math.sin(rad)};
+  balls=[];fired=0;fireTimer=4;nextX=null;boost=1;cleared=false;pendingAdds=0;phase='fire';
+  $('hint').hidden=true;$('recall').disabled=false;$('boost').textContent='';
+});
+cv.addEventListener('pointercancel',()=>{aim=null;aiming=false});
+function setSpeedLabel(){$('speed').textContent='Speed '+speedMult+'×'}
+$('speed').onclick=()=>{speedMult=speedMult===1?2:speedMult===2?4:1;store.set('vl_speed',speedMult);setSpeedLabel();if(phase==='fire'){boost=1;$('boost').textContent=''}};
+function recallAll(){
+  fired=S.ballCount; // stop firing; unfired balls are not counted
+  balls.forEach(b=>{if(!b.home){b.home=true;b.y=LY;if(nextX===null)nextX=S.launcherX}});
+}
+$('recall').onclick=()=>{if(phase==='fire')recallAll()};
+$('restart').onclick=newGame;$('again').onclick=newGame;
+
+/* ---------- physics ---------- */
+function launch(){balls.push({id:fired+1,x:S.launcherX,y:LY,dx:shotDir.dx,dy:shotDir.dy,hits:0,home:false});fired++}
+function physics(d){
+  for(const ball of balls){
+    if(ball.home)continue;
+    ball.x+=ball.dx*d;ball.y+=ball.dy*d;
+    if(ball.x<R){ball.x=R;ball.dx=Math.abs(ball.dx)}
+    if(ball.x>W-R){ball.x=W-R;ball.dx=-Math.abs(ball.dx)}
+    if(ball.y<R){ball.y=R;ball.dy=Math.abs(ball.dy)}
+    if(ball.y>=LY&&ball.dy>0){ball.y=LY;ball.home=true;if(nextX===null)nextX=ball.x;continue}
+    for(const b of S.blocks){
+      if(b.hp<=0)continue;
+      const rx=b.c*CELL+2,ry=b.r*CELL+2,rw=CELL-4,rh=CELL-4;
+      if(ball.x<rx-R||ball.x>rx+rw+R||ball.y<ry-R||ball.y>ry+rh+R)continue;
+      const px=Math.max(rx,Math.min(ball.x,rx+rw)),py=Math.max(ry,Math.min(ball.y,ry+rh));
+      let nx=ball.x-px,ny=ball.y-py;const d2=nx*nx+ny*ny;
+      if(d2>=R*R)continue;
+      let dist=Math.sqrt(d2);
+      if(dist===0){nx=-ball.dx;ny=-ball.dy;dist=1}else{nx/=dist;ny/=dist}
+      const dot=ball.dx*nx+ball.dy*ny;
+      if(dot<0){
+        ball.dx-=2*dot*nx;ball.dy-=2*dot*ny;
+        if(Math.abs(ball.dy)<.12){ball.dy=(ball.dy<0?-1:1)*.12;const m=Math.hypot(ball.dx,ball.dy);ball.dx/=m;ball.dy/=m}
+        b.hp--;b.flash=1;ball.hits++;
+        if(b.hp<=0&&b.carry){pendingAdds+=b.carry;floats.push({x:b.c*CELL+CELL/2,y:b.r*CELL+CELL/2,t:1,txt:'+'+b.carry+' ball'})}
+      }
+      if(d2>0){ball.x=px+nx*R;ball.y=py+ny*R}
+    }
+  }
+  S.blocks=S.blocks.filter(b=>b.hp>0);
+}
+function tick(){
+  if(phase==='fire'){
+    const eff=speedMult*boost;
+    fireTimer+=eff;
+    while(fireTimer>=4&&fired<S.ballCount){fireTimer-=4;launch()}
+    for(let i=0,sub=eff*3;i<sub;i++)physics(SPEED/3);
+    if(!cleared&&S.blocks.length===0){
+      cleared=true;pendingAdds+=1;recallAll();
+      floats.push({x:W/2,y:H*.4,t:1.6,txt:'Board clear +1',big:true});
+    }
+    for(const b of balls)if(b.home&&nextX!==null){const df=nextX-b.x;b.x+=Math.sign(df)*Math.min(Math.abs(df),7*eff)}
+    const hits=balls.reduce((s,b)=>s+b.hits,0);
+    $('live').innerHTML=`Volley hits <b>${hits}</b> · in flight <b>${balls.filter(b=>!b.home).length}</b>`+(boost===1?' · tap to speed up':'');
+    if(fired>=S.ballCount&&balls.every(b=>b.home&&Math.abs(b.x-(nextX??b.x))<1))endTurn();
+  }
+  S.blocks.forEach(b=>{if(b.flash>0)b.flash=Math.max(0,b.flash-.12)});
+  floats.forEach(f=>{f.t-=.02;f.y-=f.big?.2:.6});floats=floats.filter(f=>f.t>0);
+  draw();requestAnimationFrame(tick);
+}
+
+function endTurn(){
+  const hits=balls.map(b=>b.hits),n=hits.length,total=hits.reduce((a,b)=>a+b,0),duds=hits.filter(h=>h<=1).length;
+  const priorAvg=S.totals.balls?S.totals.hits/S.totals.balls:null;
+  const angle=S.shotAngle,bi=Math.min(11,Math.floor(angle/15));
+  S.history.push({turn:S.level,hits,total,angle});
+  S.bins[bi].s+=total;S.bins[bi].n+=n;S.totals.hits+=total;S.totals.balls+=n;if(cleared)S.clears++;
+  let mi=0;hits.forEach((h,i)=>{if(h>hits[mi])mi=i});
+  if(n&&(!S.bestBall||hits[mi]>S.bestBall.hits))S.bestBall={hits:hits[mi],id:mi+1,turn:S.level};
+  // lifetime, per volley
+  L.volleys++;L.balls+=n;L.hits+=total;L.duds+=duds;if(cleared)L.clears++;
+  L.bins[bi].s+=total;L.bins[bi].n+=n;
+  if(n&&(!L.bestBall||hits[mi]>L.bestBall.hits))L.bestBall={hits:hits[mi],id:mi+1,turn:S.level,date:today()};
+  saveLife();
+
+  const card={turn:S.level,hpb:n?total/n:0,prior:priorAvg,mvpId:mi+1,mvpHits:n?hits[mi]:0,adds:pendingAdds,cleared};
+  $('recall').disabled=true;$('live').textContent='';$('boost').textContent='';
+  S.level++;S.ballCount+=pendingAdds;pendingAdds=0;S.launcherX=nextX??S.launcherX;nextX=null;balls=[];boost=1;
+  S.blocks.forEach(b=>b.r++);
+  if(S.blocks.some(b=>b.r>=DEAD_ROW-1)){
+    phase='over';finishRun();store.del('vl_run');
+    const t=S.level-1,hpb=S.totals.balls?(S.totals.hits/S.totals.balls).toFixed(2):'0';
+    const rec=L.bestRun&&L.bestRun.turns===t&&L.bestRun.date===today()&&L.runs>1;
+    $('overText').innerHTML=`You survived <b>${t}</b> turns${rec?', a new personal best':''}. <b>${fmt(S.totals.hits)}</b> hits from <b>${fmt(S.totals.balls)}</b> balls, <b>${hpb}</b> per ball.`+(S.bestBall?` Best ball: <b>#${S.bestBall.id}</b> with <b>${S.bestBall.hits}</b> hits on turn ${S.bestBall.turn}.`:'');
+    $('over').hidden=false;
+  }else{
+    spawnRow();phase='aim';S.lastCard=card;showCard(card);store.set('vl_run',S);
+  }
+  updateHud();renderAll();
+}
+function finishRun(){
+  if(!S.history.length)return;
+  const turns=S.history.length,hpb=S.totals.balls?S.totals.hits/S.totals.balls:0;
+  L.runs++;
+  L.recent.unshift({date:S.date,turns,balls:S.totals.balls,hits:S.totals.hits,best:S.bestBall?S.bestBall.hits:0});
+  L.recent=L.recent.slice(0,50);
+  if(!L.bestRun||turns>L.bestRun.turns)L.bestRun={turns,date:today(),hpb};
+  saveLife();
+}
+function showCard(c){
+  $('cTurn').textContent='Turn '+c.turn;
+  $('cBig').textContent=c.hpb.toFixed(2);
+  const d=$('cDelta');
+  if(c.prior==null){d.className='delta flat';d.textContent='first volley of the run'}
+  else{const diff=c.hpb-c.prior;d.className='delta '+(Math.abs(diff)<.005?'flat':diff>0?'up':'down');d.textContent=(diff>0?'▲ ':diff<0?'▼ ':'')+Math.abs(diff).toFixed(2)+' vs run average '+c.prior.toFixed(2)}
+  $('cMvp').innerHTML=c.mvpHits?`MVP <b>#${c.mvpId}</b> with <b>${c.mvpHits}</b> hit${c.mvpHits===1?'':'s'}`:'No hits this volley';
+  const chips=[];if(c.adds-(c.cleared?1:0)>0)chips.push(`<span class="chip">+${c.adds-(c.cleared?1:0)} from blocks</span>`);if(c.cleared)chips.push('<span class="chip clear">Board clear +1</span>');
+  $('cBonus').innerHTML=chips.join('');$('cBonus').hidden=!chips.length;
+  const ar=$('cArrow');ar.className='arr '+d.className.split(' ')[1];ar.textContent=c.prior==null?'':(c.hpb>c.prior+.005?'▲':c.hpb<c.prior-.005?'▼':'–');
+  $('cTurn').textContent='Turn '+c.turn+' · '+c.hpb.toFixed(2);
+  $('pop').hidden=true;$('pillBtn').setAttribute('aria-expanded','false');
+  $('card').hidden=false;cardOn=true;
+}
+function hideCard(){cardOn=false;$('card').hidden=true;$('pop').hidden=true;$('pillBtn').setAttribute('aria-expanded','false')}
+$('pillBtn').onclick=()=>{const open=$('pop').hidden;$('pop').hidden=!open;$('pillBtn').setAttribute('aria-expanded',open)};
+function updateHud(){
+  $('hTurn').textContent=S.level;$('hBalls').textContent=S.ballCount;
+  $('hBest').textContent=L.bestRun?L.bestRun.turns:0;
+}
+
+/* ---------- drawing ---------- */
+const heatStops=[[0,[207,214,255]],[3,[255,209,102]],[10,[255,140,66]],[22,[255,77,109]]];
+function heat(h){
+  for(let i=1;i<heatStops.length;i++){const[a,ca]=heatStops[i-1],[b,cb]=heatStops[i];
+    if(h<=b){const t=(h-a)/(b-a);return`rgb(${ca.map((v,j)=>Math.round(v+(cb[j]-v)*t)).join(',')})`}}
+  return'rgb(255,77,109)';
+}
+function rrect(g,x,y,w,h,r){g.beginPath();if(g.roundRect)g.roundRect(x,y,w,h,r);else g.rect(x,y,w,h)}
+function fitCanvas(c,h){const dpr=window.devicePixelRatio||1,w=c.clientWidth;const hh=h??c.clientHeight;if(c.width!==Math.round(w*dpr)||c.height!==Math.round(hh*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(hh*dpr)}return{w,h:hh,dpr}}
+function draw(){
+  const{w,dpr}=fitCanvas(cv);const s=w/W*dpr;
+  ctx.setTransform(s,0,0,s,0,0);
+  ctx.fillStyle='#101224';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#22264a';
+  for(let c=1;c<COLS;c++)for(let r=1;r<DEAD_ROW;r++){ctx.beginPath();ctx.arc(c*CELL,r*CELL,1.2,0,7);ctx.fill()}
+  ctx.strokeStyle='#2e3263';ctx.setLineDash([4,6]);ctx.beginPath();ctx.moveTo(0,(DEAD_ROW-1)*CELL);ctx.lineTo(W,(DEAD_ROW-1)*CELL);ctx.stroke();ctx.setLineDash([]);
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  for(const b of S.blocks){
+    const x=b.c*CELL+2,y=b.r*CELL+2,sz=CELL-4;
+    const t=Math.min(1,b.hp/(2*Math.max(1,S.level)));
+    ctx.fillStyle=`hsl(${175+t*150},68%,${56+b.flash*22}%)`;
+    rrect(ctx,x,y,sz,sz,7);ctx.fill();
+    if(b.carry){
+      ctx.strokeStyle='#ffd166';ctx.lineWidth=3;rrect(ctx,x+1.5,y+1.5,sz-3,sz-3,6);ctx.stroke();
+      ctx.fillStyle='#ffd166';ctx.beginPath();ctx.arc(x+sz-10,y+10,7,0,7);ctx.fill();
+      ctx.fillStyle='#14162b';ctx.font="700 10px 'JetBrains Mono',monospace";ctx.fillText('+'+b.carry,x+sz-10,y+10.5);
+    }
+    ctx.fillStyle='#14162b';ctx.font=`700 ${b.hp>999?14:18}px 'JetBrains Mono',monospace`;
+    ctx.fillText(b.hp,x+sz/2,y+sz/2+2);
+  }
+  for(const f of floats){
+    ctx.globalAlpha=Math.min(1,f.t);ctx.fillStyle=f.big?'#5fd39a':'#ffd166';
+    ctx.font=f.big?"400 26px Bungee,'Arial Black',sans-serif":"700 13px 'JetBrains Mono',monospace";
+    ctx.fillText(f.txt,f.x,f.y);ctx.globalAlpha=1;
+  }
+  ctx.fillStyle='#1c1f3b';ctx.fillRect(0,H-2,W,2);
+  if(phase==='aim'||phase==='over'){
+    if(aim!=null){
+      const rad=aim*Math.PI/180,dx=Math.cos(rad),dy=-Math.sin(rad);
+      ctx.fillStyle='rgba(207,214,255,.75)';
+      for(let i=1;i<26;i++){
+        const x=S.launcherX+dx*i*14,y=LY+dy*i*14;
+        if(x<0||x>W||y<0)break;
+        if(S.blocks.some(b=>x>b.c*CELL&&x<b.c*CELL+CELL&&y>b.r*CELL&&y<b.r*CELL+CELL))break;
+        ctx.globalAlpha=1-i/30;ctx.beginPath();ctx.arc(x,y,2.4,0,7);ctx.fill();
+      }
+      ctx.globalAlpha=1;ctx.fillStyle='#9a97c4';ctx.font="500 12px 'JetBrains Mono',monospace";
+      ctx.fillText(Math.round(aim)+'°',S.launcherX+(S.launcherX>W-40?-26:26),LY-14);
+    }
+    ctx.fillStyle=heat(0);ctx.beginPath();ctx.arc(S.launcherX,LY,R,0,7);ctx.fill();
+    ctx.fillStyle='#ece9f7';ctx.font="700 12px 'JetBrains Mono',monospace";ctx.fillText('×'+S.ballCount,S.launcherX,LY-16);
+  }
+  if(phase==='fire'){
+    if(fired<S.ballCount){ctx.fillStyle=heat(0);ctx.beginPath();ctx.arc(S.launcherX,LY,R,0,7);ctx.fill();
+      ctx.fillStyle='#ece9f7';ctx.font="700 12px 'JetBrains Mono',monospace";ctx.fillText('×'+(S.ballCount-fired),S.launcherX,LY-16)}
+    let lead=null;for(const b of balls)if(!b.home&&b.hits>0&&(!lead||b.hits>lead.hits))lead=b;
+    for(const b of balls){ctx.fillStyle=heat(b.hits);ctx.beginPath();ctx.arc(b.x,b.y,R,0,7);ctx.fill()}
+    if(lead){
+      ctx.strokeStyle='rgba(255,77,109,.8)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(lead.x,lead.y,R+4,0,7);ctx.stroke();
+      ctx.fillStyle='#ff4d6d';ctx.font="700 10px 'JetBrains Mono',monospace";
+      ctx.fillText('#'+lead.id+' · '+lead.hits,Math.max(28,Math.min(W-28,lead.x)),lead.y-R-10);
+    }
+  }
+}
+
+/* ---------- charts ---------- */
+function emptyMsg(g,w,h,msg){g.fillStyle=C('muted');g.font="13px Manrope,system-ui,sans-serif";g.textAlign='center';g.textBaseline='middle';g.fillText(msg,w/2,h/2)}
+function drawBars(){
+  const c=$('bars');if(!c.clientWidth)return;const g=c.getContext('2d'),{w,h,dpr}=fitCanvas(c,140);g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  const last=S.history.at(-1);
+  if(!last||!last.hits.length){emptyMsg(g,w,h,'Each ball gets its own bar after your first volley');return}
+  const hits=last.hits,n=hits.length,max=Math.max(1,...hits),top=18,bot=20,ch=h-top-bot,left=26;
+  const bw=(w-left)/n,gap=n<50?Math.min(3,bw*.25):0;
+  let mi=0;hits.forEach((v,i)=>{if(v>hits[mi])mi=i});
+  g.strokeStyle=C('line');g.lineWidth=1;g.beginPath();g.moveTo(left,top+ch+.5);g.lineTo(w,top+ch+.5);g.stroke();
+  g.fillStyle=C('muted');g.font="11px 'JetBrains Mono',monospace";g.textAlign='right';g.textBaseline='middle';
+  g.fillText(max,left-6,top);g.fillText(0,left-6,top+ch);
+  hits.forEach((v,i)=>{const bh=Math.max(v?2:1,v/max*ch);g.fillStyle=i===mi&&v>0?C('mvp'):v<=1?C('line'):C('hot');g.fillRect(left+i*bw+gap/2,top+ch-bh,Math.max(1,bw-gap),bh)});
+  const avg=last.total/n,ay=top+ch-avg/max*ch;
+  g.strokeStyle=C('fg');g.globalAlpha=.7;g.setLineDash([4,4]);g.beginPath();g.moveTo(left,ay);g.lineTo(w,ay);g.stroke();g.setLineDash([]);g.globalAlpha=1;
+  g.fillStyle=C('fg');g.textAlign='right';g.textBaseline='bottom';g.fillText('avg '+avg.toFixed(1),w,ay-3);
+  g.fillStyle=C('muted');g.textAlign='left';g.textBaseline='top';g.fillText('#1',left,top+ch+5);g.textAlign='right';g.fillText('#'+n,w,top+ch+5);
+}
+function drawSpark(id,vals,firstLbl,lastLbl,emptyText){
+  const c=$(id);if(!c.clientWidth)return;const g=c.getContext('2d'),{w,h,dpr}=fitCanvas(c,110);g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  if(vals.length<2){emptyMsg(g,w,h,emptyText);return}
+  const max=Math.max(1,...vals),left=30,top=12,bot=18,ch=h-top-bot,cw=w-left-8;
+  const X=i=>left+i/(vals.length-1)*cw,Y=v=>top+ch-v/max*ch;
+  g.strokeStyle=C('line');g.lineWidth=1;[0,.5,1].forEach(f=>{const y=top+ch*f+.5;g.beginPath();g.moveTo(left,y);g.lineTo(w-8,y);g.stroke()});
+  g.fillStyle=C('muted');g.font="11px 'JetBrains Mono',monospace";g.textAlign='right';g.textBaseline='middle';g.fillText(max.toFixed(1),left-6,top);g.fillText('0',left-6,top+ch);
+  g.beginPath();vals.forEach((v,i)=>i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v)));
+  g.lineTo(X(vals.length-1),top+ch);g.lineTo(X(0),top+ch);g.closePath();g.fillStyle='rgba(255,140,66,.16)';g.fill();
+  g.beginPath();vals.forEach((v,i)=>i?g.lineTo(X(i),Y(v)):g.moveTo(X(i),Y(v)));g.strokeStyle=C('hot');g.lineWidth=2;g.stroke();
+  g.fillStyle=C('hot');g.beginPath();g.arc(X(vals.length-1),Y(vals.at(-1)),4,0,7);g.fill();
+  g.textBaseline='top';g.fillStyle=C('muted');g.textAlign='left';g.fillText(firstLbl,left,top+ch+4);g.textAlign='right';g.fillText(lastLbl,w-8,top+ch+4);
+}
+function drawFan(id,bins){
+  const c=$(id);const cw=c.clientWidth;if(!cw)return;const rad=Math.min(cw/2-30,150),hh=rad+34;c.style.height=hh+'px';
+  const{w,h,dpr}=fitCanvas(c,hh);const g=c.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  const cx=w/2,cy=rad+12,avgs=bins.map(b=>b.n?b.s/b.n:null),max=Math.max(1,...avgs.filter(v=>v!=null));
+  let best=-1;avgs.forEach((v,i)=>{if(v!=null&&(best<0||v>avgs[best]))best=i});
+  for(let i=0;i<12;i++){
+    const a0=i*15*Math.PI/180,a1=(i+1)*15*Math.PI/180,v=avgs[i];
+    g.beginPath();g.moveTo(cx,cy);g.arc(cx,cy,rad,-a1,-a0);g.closePath();
+    g.fillStyle=v==null?'rgba(46,50,99,.35)':heat(v/max*22);g.fill();g.strokeStyle=C('bg');g.lineWidth=2;g.stroke();
+    if(v!=null){const am=(a0+a1)/2;g.fillStyle='#14162b';g.font="700 11px 'JetBrains Mono',monospace";g.textAlign='center';g.textBaseline='middle';g.fillText(v.toFixed(1),cx+Math.cos(am)*rad*.74,cy-Math.sin(am)*rad*.74)}
+  }
+  if(best>=0){const a0=best*15*Math.PI/180,a1=(best+1)*15*Math.PI/180;g.beginPath();g.arc(cx,cy,rad+5,-a1,-a0);g.strokeStyle=C('mvp');g.lineWidth=3;g.stroke()}
+  g.fillStyle=C('fg');g.beginPath();g.arc(cx,cy,4,0,7);g.fill();
+  g.fillStyle=C('muted');g.font="11px 'JetBrains Mono',monospace";g.textBaseline='top';
+  g.textAlign='left';g.fillText('180° left',Math.max(0,cx-rad-4),cy+8);g.textAlign='right';g.fillText('0° right',Math.min(w,cx+rad+4),cy+8);g.textAlign='center';g.fillText('90°',cx,cy+8);
+  if(best<0){g.fillStyle=C('muted');g.font="13px Manrope,system-ui,sans-serif";g.textBaseline='middle';g.fillText('Wedges light up as you shoot',cx,cy-rad*.45)}
+}
+
+/* ---------- stats panels ---------- */
+function renderRun(){
+  const last=S.history.at(-1);
+  if(last){
+    const n=last.hits.length,avg=n?last.total/n:0;let mi=0;last.hits.forEach((h,i)=>{if(h>last.hits[mi])mi=i});
+    const duds=last.hits.filter(h=>h<=1).length;
+    $('mHpb').textContent=avg.toFixed(2);$('mHpbS').textContent=`turn ${last.turn} · ${Math.round(last.angle)}° shot`;
+    $('mTot').textContent=fmt(last.total);$('mTotS').textContent=`from ${n} ball${n===1?'':'s'}`;
+    $('mMvp').textContent=n?'#'+(mi+1):'–';$('mMvpS').textContent=n?`${last.hits[mi]} hits · ${last.total?Math.round(last.hits[mi]/last.total*100):0}% of volley`:'';
+    $('mDud').textContent=duds;$('mDudS').textContent=n?`${Math.round(duds/n*100)}% of balls`:'';
+  }else{
+    ['mHpb','mTot','mMvp','mDud'].forEach(id=>$(id).textContent='–');
+    $('mHpbS').textContent='fire a volley';['mTotS','mMvpS','mDudS'].forEach(id=>$(id).innerHTML='&nbsp;');
+  }
+  $('aHpb').textContent=S.totals.balls?`${(S.totals.hits/S.totals.balls).toFixed(2)} (${fmt(S.totals.balls)} balls)`:'–';
+  $('aBest').textContent=S.bestBall?`${S.bestBall.hits} hits · #${S.bestBall.id}, turn ${S.bestBall.turn}`:'–';
+  $('aClr').textContent=S.clears;
+  drawBars();
+  drawSpark('spark',S.history.map(t=>t.hits.length?t.total/t.hits.length:0),S.history.length?'turn '+S.history[0].turn:'',S.history.length?'turn '+S.history.at(-1).turn:'',S.history.length?'One more volley to draw a trend':'Your efficiency trend will appear here');
+  drawFan('fan',S.bins);
+}
+function renderLife(){
+  $('lRuns').textContent=fmt(L.runs);$('lRunsS').textContent=L.volleys?`${fmt(L.volleys)} volleys`:'finish a run to log it';
+  $('lBest').textContent=L.bestRun?L.bestRun.turns:'–';$('lBestS').textContent=L.bestRun?`turns · ${L.bestRun.date}`:'turns survived';
+  $('lHpb').textContent=L.balls?(L.hits/L.balls).toFixed(2):'–';$('lHpbS').textContent=L.balls?`${fmt(L.balls)} balls fired`:' ';
+  $('lBall').textContent=L.bestBall?L.bestBall.hits:'–';$('lBallS').textContent=L.bestBall?`hits · #${L.bestBall.id}, turn ${L.bestBall.turn}`:' ';
+  $('lVol').textContent=fmt(L.volleys);$('lBalls').textContent=fmt(L.balls);$('lHits').textContent=fmt(L.hits);
+  $('lDud').textContent=L.balls?Math.round(L.duds/L.balls*100)+'%':'–';$('lClr').textContent=fmt(L.clears);
+  const runs=[...L.recent].reverse();
+  drawSpark('lspark',runs.map(r=>r.balls?r.hits/r.balls:0),runs[0]?runs[0].date:'',runs.at(-1)?runs.at(-1).date:'',runs.length?'Finish one more run to draw a trend':'Finished runs will appear here');
+  drawFan('lfan',L.bins);
+  $('lTable').innerHTML=L.recent.length?L.recent.slice(0,12).map(r=>`<tr><td>${r.date}</td><td>${r.turns}</td><td>${fmt(r.balls)}</td><td>${r.balls?(r.hits/r.balls).toFixed(2):'–'}</td><td>${r.best}</td></tr>`).join(''):'<tr><td class="empty" colspan="5">No finished runs yet</td></tr>';
+}
+function renderAll(){renderRun();renderLife()}
+function tab(which){
+  const run=which==='run';$('tRun').setAttribute('aria-selected',run);$('tLife').setAttribute('aria-selected',!run);
+  $('pRun').hidden=!run;$('pLife').hidden=run;store.set('vl_tab',which);renderAll();
+}
+$('tRun').onclick=()=>tab('run');$('tLife').onclick=()=>tab('life');
+
+/* ---------- export / import ---------- */
+const msg=(t,k)=>{const m=$('dataMsg');m.textContent=t;m.className='note'+(k?' '+k:'')};
+function exportJson(){return JSON.stringify({app:'volley-lab',exported:new Date().toISOString(),lifetime:L})}
+$('exp').onclick=()=>{$('impBox').hidden=true;$('expText').value=exportJson();$('expBox').hidden=false;msg('')};
+$('copy').onclick=()=>{
+  const t=$('expText');
+  try{navigator.clipboard.writeText(t.value).then(()=>msg('Copied.','ok'),()=>{t.select();msg('Select all and copy the text above.')})}catch(e){t.select();msg('Select all and copy the text above.')}
+};
+$('saveFile').onclick=async()=>{
+  const name=`volley-lab-stats-${today()}.json`,blob=new Blob([exportJson()],{type:'application/json'});
+  try{
+    const file=new File([blob],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Volley Lab stats'});msg('Saved.','ok');return}
+  }catch(e){if(e&&e.name==='AbortError')return}
+  try{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();msg('If no file appeared, use Copy instead.')}catch(e){msg('Saving files is blocked here. Use Copy instead.','err')}
+};
+$('imp').onclick=()=>{$('expBox').hidden=true;$('impBox').hidden=false;$('impText').value='';msg('')};
+$('impPick').onclick=()=>$('impFile').click();
+$('impFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('impText').value=r.result;msg('File loaded. Tap Replace my stats to use it.')};r.readAsText(f);e.target.value=''};
+$('impGo').onclick=()=>{
+  let o;try{o=JSON.parse($('impText').value)}catch(e){msg('That text is not a Volley Lab export. Paste the whole export, starting with {.','err');return}
+  const life=o&&o.lifetime;
+  if(!validLife(life)){msg('That file is not a Volley Lab export.','err');return}
+  L=life;saveLife();updateHud();renderLife();$('impBox').hidden=true;msg(`Imported ${fmt(L.runs)} runs and ${fmt(L.balls)} balls.`,'ok');
+};
+let rstArmed=null;
+$('rst').onclick=()=>{
+  if(!rstArmed){$('rst').classList.add('armed');$('rst').textContent='Tap again to erase';rstArmed=setTimeout(()=>{rstArmed=null;$('rst').classList.remove('armed');$('rst').textContent='Reset lifetime'},3000);return}
+  clearTimeout(rstArmed);rstArmed=null;$('rst').classList.remove('armed');$('rst').textContent='Reset lifetime';
+  L=blankLife();saveLife();updateHud();renderLife();msg('Lifetime stats erased.','ok');
+};
+
+let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(renderAll,120)});
+setSpeedLabel();
+if(!resume())newGame();
+if(store.get('vl_tab')==='life')tab('life');
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(renderAll);
+requestAnimationFrame(tick);
+if('serviceWorker' in navigator&&location.protocol==='https:'&&!/claude\.ai|claudeusercontent/.test(location.host)){navigator.serviceWorker.register('sw.js').catch(()=>{})}
+})();
+</script>
+
+</body>
+</html>

@@ -43,6 +43,6 @@ Each device keeps its own stats. To move them, open **Lifetime → Export stats*
 
 ## Updating
 
-Replace `index.html` and change the version in the first line of `sw.js` (for example `volley-lab-v4` → `volley-lab-v5`). Installed copies pick up the update the next time they open while online. Stats are kept.
+Replace `index.html` and change the version in the first line of `sw.js` (for example `volley-lab-v5` → `volley-lab-v6`). Installed copies pick up the update the next time they open while online. Stats are kept.
 
 Removing the home screen app, or clearing Safari website data, erases the stats on that device. Export first.

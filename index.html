@@ -70,7 +70,9 @@ button.armed{background:var(--mvp);color:#1a1020;border-color:var(--mvp)}
 .stats{display:flex;flex-direction:column;gap:22px;min-width:0}
 .tabs{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px;align-self:flex-start}
 .tabs button{border:0;background:transparent;color:var(--muted);padding:6px 16px}
-.tabs button[aria-selected="true"]{background:var(--line);color:var(--fg)}
+.tabs button[aria-selected="true"],.tabs button[aria-pressed="true"]{background:var(--line);color:var(--fg)}
+#diffSeg button[aria-pressed="true"]{background:var(--hot);color:#1a1020}
+#lifeSeg button[aria-selected="true"]{background:var(--line)}
 .pane{display:flex;flex-direction:column;gap:22px;min-width:0}
 .sec h3{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:700}
 .metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
@@ -117,6 +119,12 @@ td.empty{text-align:center;color:var(--muted);font-family:var(--body);padding:16
         <div>Best <b id="hBest">0</b></div>
       </div>
     </div>
+    <div class="tabs" id="diffSeg" role="group" aria-label="Difficulty">
+      <button data-d="easy" aria-pressed="false">Easy</button>
+      <button data-d="medium" aria-pressed="true">Medium</button>
+      <button data-d="hard" aria-pressed="false">Hard</button>
+    </div>
+    <p class="note" id="diffNote" hidden></p>
     <div class="board">
       <canvas id="cv" aria-label="Game board. Drag to aim, release to fire. Tap during a volley to speed it up."></canvas>
       <div class="live"><span id="live"></span><span class="boost" id="boost"></span></div>
@@ -186,6 +194,11 @@ td.empty{text-align:center;color:var(--muted);font-family:var(--body);padding:16
     </div>
 
     <div class="pane" id="pLife" hidden>
+      <div class="tabs" id="lifeSeg" role="tablist" aria-label="Show stats for">
+        <button role="tab" data-d="easy" aria-selected="false">Easy</button>
+        <button role="tab" data-d="medium" aria-selected="true">Medium</button>
+        <button role="tab" data-d="hard" aria-selected="false">Hard</button>
+      </div>
       <div class="sec">
         <h3>All runs</h3>
         <div class="metrics">
@@ -257,25 +270,32 @@ const fmt=n=>Number(n).toLocaleString();
 /* ---------- lifetime ---------- */
 function blankLife(){return{v:1,runs:0,volleys:0,balls:0,hits:0,duds:0,clears:0,bins:Array.from({length:12},()=>({s:0,n:0})),bestBall:null,bestRun:null,recent:[]}}
 function validLife(o){return o&&o.v===1&&Array.isArray(o.bins)&&o.bins.length===12&&Array.isArray(o.recent)&&typeof o.balls==='number'}
-let L=store.get('vl_life');if(!validLife(L))L=blankLife();
-const saveLife=()=>store.set('vl_life',L);
+const DIFFS=['easy','medium','hard'],DNAME={easy:'Easy',medium:'Medium',hard:'Hard'};
+function blankAll(){return{v:2,easy:blankLife(),medium:blankLife(),hard:blankLife()}}
+function validAll(o){return o&&o.v===2&&DIFFS.every(d=>validLife(o[d]))}
+// lifetime records, one per difficulty; v1 (single record) files are treated as Medium
+function toAll(o){if(validAll(o))return o;if(validLife(o)){const a=blankAll();a.medium=o;return a}return null}
+let ALL=toAll(store.get('vl_life'))||blankAll();
+const saveLife=()=>store.set('vl_life',ALL);
+let curDiff=DIFFS.includes(store.get('vl_diff'))?store.get('vl_diff'):'medium';
+let viewDiff=curDiff;
 
 /* ---------- run state ---------- */
 let S; // serializable run state
 let balls=[],phase='aim',fired=0,fireTimer=0,pendingAdds=0,cleared=false,shotDir,aim=null,nextX=null,boost=1,floats=[],cardOn=false,lastCard=null;
 let speedMult=store.get('vl_speed')||1;
 
-function blankRun(){return{level:1,ballCount:1,launcherX:W/2,blocks:[],history:[],bins:Array.from({length:12},()=>({s:0,n:0})),bestBall:null,totals:{hits:0,balls:0},clears:0,date:today()}}
+function blankRun(){return{level:1,ballCount:1,launcherX:W/2,blocks:[],history:[],bins:Array.from({length:12},()=>({s:0,n:0})),bestBall:null,totals:{hits:0,balls:0},clears:0,date:today(),diff:curDiff}}
 function newGame(){
   if(S&&S.history.length&&phase!=='over')finishRun(); // count an abandoned run
   S=blankRun();balls=[];phase='aim';fired=0;pendingAdds=0;cleared=false;floats=[];cardOn=false;
   spawnRow();store.del('vl_run');
-  $('over').hidden=true;$('hint').hidden=false;hideCard();$('live').textContent='';$('boost').textContent='';
+  $('over').hidden=true;$('hint').hidden=false;$('recall').disabled=true;hideCard();$('live').textContent='';$('boost').textContent='';
   updateHud();renderAll();
 }
 function resume(){
   const r=store.get('vl_run');
-  if(r&&Array.isArray(r.blocks)&&r.level){S=r;balls=[];phase='aim';$('hint').hidden=true;if(r.lastCard)showCard(r.lastCard);updateHud();renderAll();return true}
+  if(r&&Array.isArray(r.blocks)&&r.level){S=r;if(!DIFFS.includes(S.diff))S.diff='medium';curDiff=viewDiff=S.diff;setDiffUI();balls=[];phase='aim';$('hint').hidden=true;if(r.lastCard)showCard(r.lastCard);updateHud();renderAll();return true}
   return false;
 }
 function spawnRow(){
@@ -305,7 +325,8 @@ cv.addEventListener('pointerdown',e=>{
 cv.addEventListener('pointermove',e=>{if(phase==='aim'&&aiming)aim=aimFrom(toLogical(e))});
 cv.addEventListener('pointerup',e=>{
   if(phase!=='aim'||!aiming)return;aiming=false;
-  const a=aimFrom(toLogical(e));aim=null;if(a==null)return;
+  // fire along the line the player was looking at; the lift-off point drifts on touch screens
+  const a=aim!=null?aim:aimFrom(toLogical(e));aim=null;if(a==null)return;
   S.shotAngle=a;const rad=a*Math.PI/180;shotDir={dx:Math.cos(rad),dy:-Math.sin(rad)};
   balls=[];fired=0;fireTimer=4;nextX=null;boost=1;cleared=false;pendingAdds=0;phase='fire';
   $('hint').hidden=true;$('recall').disabled=false;$('boost').textContent='';
@@ -379,7 +400,8 @@ function endTurn(){
   S.bins[bi].s+=total;S.bins[bi].n+=n;S.totals.hits+=total;S.totals.balls+=n;if(cleared)S.clears++;
   let mi=0;hits.forEach((h,i)=>{if(h>hits[mi])mi=i});
   if(n&&(!S.bestBall||hits[mi]>S.bestBall.hits))S.bestBall={hits:hits[mi],id:mi+1,turn:S.level};
-  // lifetime, per volley
+  // lifetime, per volley, for this run's difficulty
+  const L=ALL[S.diff];
   L.volleys++;L.balls+=n;L.hits+=total;L.duds+=duds;if(cleared)L.clears++;
   L.bins[bi].s+=total;L.bins[bi].n+=n;
   if(n&&(!L.bestBall||hits[mi]>L.bestBall.hits))L.bestBall={hits:hits[mi],id:mi+1,turn:S.level,date:today()};
@@ -393,7 +415,7 @@ function endTurn(){
     phase='over';finishRun();store.del('vl_run');
     const t=S.level-1,hpb=S.totals.balls?(S.totals.hits/S.totals.balls).toFixed(2):'0';
     const rec=L.bestRun&&L.bestRun.turns===t&&L.bestRun.date===today()&&L.runs>1;
-    $('overText').innerHTML=`You survived <b>${t}</b> turns${rec?', a new personal best':''}. <b>${fmt(S.totals.hits)}</b> hits from <b>${fmt(S.totals.balls)}</b> balls, <b>${hpb}</b> per ball.`+(S.bestBall?` Best ball: <b>#${S.bestBall.id}</b> with <b>${S.bestBall.hits}</b> hits on turn ${S.bestBall.turn}.`:'');
+    $('overText').innerHTML=`You survived <b>${t}</b> turns on ${DNAME[S.diff]}${rec?', a new personal best':''}. <b>${fmt(S.totals.hits)}</b> hits from <b>${fmt(S.totals.balls)}</b> balls, <b>${hpb}</b> per ball.`+(S.bestBall?` Best ball: <b>#${S.bestBall.id}</b> with <b>${S.bestBall.hits}</b> hits on turn ${S.bestBall.turn}.`:'');
     $('over').hidden=false;
   }else{
     spawnRow();phase='aim';S.lastCard=card;showCard(card);store.set('vl_run',S);
@@ -403,6 +425,7 @@ function endTurn(){
 function finishRun(){
   if(!S.history.length)return;
   const turns=S.history.length,hpb=S.totals.balls?S.totals.hits/S.totals.balls:0;
+  const L=ALL[S.diff];
   L.runs++;
   L.recent.unshift({date:S.date,turns,balls:S.totals.balls,hits:S.totals.hits,best:S.bestBall?S.bestBall.hits:0});
   L.recent=L.recent.slice(0,50);
@@ -427,8 +450,27 @@ function hideCard(){cardOn=false;$('card').hidden=true;$('pop').hidden=true;$('p
 $('pillBtn').onclick=()=>{const open=$('pop').hidden;$('pop').hidden=!open;$('pillBtn').setAttribute('aria-expanded',open)};
 function updateHud(){
   $('hTurn').textContent=S.level;$('hBalls').textContent=S.ballCount;
-  $('hBest').textContent=L.bestRun?L.bestRun.turns:0;
+  const L=ALL[S.diff];$('hBest').textContent=L.bestRun?L.bestRun.turns:0;
 }
+function setDiffUI(){
+  document.querySelectorAll('#diffSeg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.d===curDiff));
+  document.querySelectorAll('#lifeSeg button').forEach(b=>b.setAttribute('aria-selected',b.dataset.d===viewDiff));
+  $('rst').textContent='Reset '+DNAME[viewDiff]+' stats';
+}
+let diffArmed=null;
+document.querySelectorAll('#diffSeg button').forEach(btn=>btn.onclick=()=>{
+  const d=btn.dataset.d;if(d===S.diff){diffArmed=null;$('diffNote').hidden=true;return}
+  const inProgress=S.history.length&&phase!=='over';
+  if(inProgress&&diffArmed!==d){
+    diffArmed=d;$('diffNote').textContent=`Tap ${DNAME[d]} again to end this run and start a new ${DNAME[d]} game.`;$('diffNote').hidden=false;
+    setTimeout(()=>{if(diffArmed===d){diffArmed=null;$('diffNote').hidden=true}},4000);return;
+  }
+  diffArmed=null;$('diffNote').hidden=true;
+  curDiff=viewDiff=d;store.set('vl_diff',d);
+  if(phase==='fire'){balls=[];}
+  newGame();setDiffUI();
+});
+document.querySelectorAll('#lifeSeg button').forEach(btn=>btn.onclick=()=>{viewDiff=btn.dataset.d;setDiffUI();renderLife()});
 
 /* ---------- drawing ---------- */
 const heatStops=[[0,[207,214,255]],[3,[255,209,102]],[10,[255,140,66]],[22,[255,77,109]]];
@@ -439,6 +481,19 @@ function heat(h){
 }
 function rrect(g,x,y,w,h,r){g.beginPath();if(g.roundRect)g.roundRect(x,y,w,h,r);else g.rect(x,y,w,h)}
 function fitCanvas(c,h){const dpr=window.devicePixelRatio||1,w=c.clientWidth;const hh=h??c.clientHeight;if(c.width!==Math.round(w*dpr)||c.height!==Math.round(hh*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(hh*dpr)}return{w,h:hh,dpr}}
+function march(x0,y0,dx,dy,max){
+  let x=x0,y=y0,t=2;
+  for(;t<max;t+=2){
+    const nx=x0+dx*t,ny=y0+dy*t;
+    if(nx<R||nx>W-R)return{x,y,t,hit:'side'};
+    if(ny<R)return{x,y,t,hit:'top'};
+    if(ny>LY)return{x,y,t,hit:'floor'};
+    const blk=S.blocks.find(b=>nx>b.c*CELL+2-R&&nx<b.c*CELL+CELL-2+R&&ny>b.r*CELL+2-R&&ny<b.r*CELL+CELL-2+R);
+    if(blk)return{x,y,t,hit:'block',block:blk};
+    x=nx;y=ny;
+  }
+  return{x,y,t,hit:null};
+}
 function draw(){
   const{w,dpr}=fitCanvas(cv);const s=w/W*dpr;
   ctx.setTransform(s,0,0,s,0,0);
@@ -469,14 +524,27 @@ function draw(){
   if(phase==='aim'||phase==='over'){
     if(aim!=null){
       const rad=aim*Math.PI/180,dx=Math.cos(rad),dy=-Math.sin(rad);
-      ctx.fillStyle='rgba(207,214,255,.75)';
-      for(let i=1;i<26;i++){
-        const x=S.launcherX+dx*i*14,y=LY+dy*i*14;
-        if(x<0||x>W||y<0)break;
-        if(S.blocks.some(b=>x>b.c*CELL&&x<b.c*CELL+CELL&&y>b.r*CELL&&y<b.r*CELL+CELL))break;
-        ctx.globalAlpha=1-i/30;ctx.beginPath();ctx.arc(x,y,2.4,0,7);ctx.fill();
+      // march to the first wall, ceiling or block. One bounce is previewed by difficulty:
+      // easy = any surface, medium = side walls only, hard = no bounce
+      const s1=march(S.launcherX,LY,dx,dy,2000);
+      ctx.fillStyle='rgba(207,214,255,.8)';
+      for(let d=16;d<s1.t-10;d+=14){ctx.beginPath();ctx.arc(S.launcherX+dx*d,LY+dy*d,2.4,0,7);ctx.fill()}
+      let end=s1,ndx=null,ndy=null;
+      const diff=S.diff||'medium';
+      if(s1.hit==='side'&&diff!=='hard'){ndx=-dx;ndy=dy}
+      else if(s1.hit==='top'&&diff==='easy'){ndx=dx;ndy=-dy}
+      else if(s1.hit==='block'&&diff==='easy'){
+        const b=s1.block,rx=b.c*CELL+2,ry=b.r*CELL+2,rw=CELL-4;
+        let nx=s1.x-Math.max(rx,Math.min(s1.x,rx+rw)),ny=s1.y-Math.max(ry,Math.min(s1.y,ry+rw));
+        const m=Math.hypot(nx,ny);if(m<1e-6){nx=-dx;ny=-dy}else{nx/=m;ny/=m}
+        const dot=dx*nx+dy*ny;ndx=dx-2*dot*nx;ndy=dy-2*dot*ny;
       }
-      ctx.globalAlpha=1;ctx.fillStyle='#9a97c4';ctx.font="500 12px 'JetBrains Mono',monospace";
+      if(ndx!==null){
+        const s2=march(s1.x,s1.y,ndx,ndy,2000);
+        for(let d=14;d<s2.t-10;d+=14){ctx.beginPath();ctx.arc(s1.x+ndx*d,s1.y+ndy*d,2.4,0,7);ctx.fill()}
+        end=s2;
+      }
+      ctx.strokeStyle='rgba(207,214,255,.85)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(end.x,end.y,R,0,7);ctx.stroke();ctx.fillStyle='#9a97c4';ctx.font="500 12px 'JetBrains Mono',monospace";
       ctx.fillText(Math.round(aim)+'°',S.launcherX+(S.launcherX>W-40?-26:26),LY-14);
     }
     ctx.fillStyle=heat(0);ctx.beginPath();ctx.arc(S.launcherX,LY,R,0,7);ctx.fill();
@@ -566,6 +634,7 @@ function renderRun(){
   drawFan('fan',S.bins);
 }
 function renderLife(){
+  const L=ALL[viewDiff];
   $('lRuns').textContent=fmt(L.runs);$('lRunsS').textContent=L.volleys?`${fmt(L.volleys)} volleys`:'finish a run to log it';
   $('lBest').textContent=L.bestRun?L.bestRun.turns:'–';$('lBestS').textContent=L.bestRun?`turns · ${L.bestRun.date}`:'turns survived';
   $('lHpb').textContent=L.balls?(L.hits/L.balls).toFixed(2):'–';$('lHpbS').textContent=L.balls?`${fmt(L.balls)} balls fired`:' ';
@@ -586,7 +655,7 @@ $('tRun').onclick=()=>tab('run');$('tLife').onclick=()=>tab('life');
 
 /* ---------- export / import ---------- */
 const msg=(t,k)=>{const m=$('dataMsg');m.textContent=t;m.className='note'+(k?' '+k:'')};
-function exportJson(){return JSON.stringify({app:'volley-lab',exported:new Date().toISOString(),lifetime:L})}
+function exportJson(){return JSON.stringify({app:'volley-lab',exported:new Date().toISOString(),lifetime:ALL})}
 $('exp').onclick=()=>{$('impBox').hidden=true;$('expText').value=exportJson();$('expBox').hidden=false;msg('')};
 $('copy').onclick=()=>{
   const t=$('expText');
@@ -605,19 +674,21 @@ $('impPick').onclick=()=>$('impFile').click();
 $('impFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{$('impText').value=r.result;msg('File loaded. Tap Replace my stats to use it.')};r.readAsText(f);e.target.value=''};
 $('impGo').onclick=()=>{
   let o;try{o=JSON.parse($('impText').value)}catch(e){msg('That text is not a Volley Lab export. Paste the whole export, starting with {.','err');return}
-  const life=o&&o.lifetime;
-  if(!validLife(life)){msg('That file is not a Volley Lab export.','err');return}
-  L=life;saveLife();updateHud();renderLife();$('impBox').hidden=true;msg(`Imported ${fmt(L.runs)} runs and ${fmt(L.balls)} balls.`,'ok');
+  const life=toAll(o&&o.lifetime);
+  if(!life){msg('That file is not a Volley Lab export.','err');return}
+  ALL=life;saveLife();updateHud();renderLife();$('impBox').hidden=true;
+  const runs=DIFFS.reduce((s,d)=>s+ALL[d].runs,0),bs=DIFFS.reduce((s,d)=>s+ALL[d].balls,0);
+  msg(`Imported ${fmt(runs)} runs and ${fmt(bs)} balls across all difficulties.`,'ok');
 };
 let rstArmed=null;
 $('rst').onclick=()=>{
-  if(!rstArmed){$('rst').classList.add('armed');$('rst').textContent='Tap again to erase';rstArmed=setTimeout(()=>{rstArmed=null;$('rst').classList.remove('armed');$('rst').textContent='Reset lifetime'},3000);return}
-  clearTimeout(rstArmed);rstArmed=null;$('rst').classList.remove('armed');$('rst').textContent='Reset lifetime';
-  L=blankLife();saveLife();updateHud();renderLife();msg('Lifetime stats erased.','ok');
+  if(!rstArmed){$('rst').classList.add('armed');$('rst').textContent='Tap again to erase '+DNAME[viewDiff];rstArmed=setTimeout(()=>{rstArmed=null;$('rst').classList.remove('armed');setDiffUI()},3000);return}
+  clearTimeout(rstArmed);rstArmed=null;$('rst').classList.remove('armed');
+  ALL[viewDiff]=blankLife();saveLife();updateHud();renderLife();setDiffUI();msg(DNAME[viewDiff]+' stats erased.','ok');
 };
 
 let rt;window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(renderAll,120)});
-setSpeedLabel();
+setSpeedLabel();setDiffUI();
 if(!resume())newGame();
 if(store.get('vl_tab')==='life')tab('life');
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(renderAll);
